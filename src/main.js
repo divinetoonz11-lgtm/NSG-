@@ -55,14 +55,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ========================
-// 🔐 AUTH MIDDLEWARE
+// 🚀 HEALTH CHECK ROUTE
 // ========================
-app.use(authMiddleware);
+app.get('/', (req, res) => {
+  res.send('API is running 🚀');
+});
 
 // ========================
 // 🚀 ROUTES
 // ========================
-app.use('/', routes());
+// Removed global authMiddleware
+// Use authMiddleware only on protected routes inside routes files
+app.use('/api', routes());
 
 // ========================
 // ❌ ERROR HANDLER
@@ -82,7 +86,7 @@ app.use((req, res) => {
 const port = process.env.PORT || 5000;
 
 app.listen(port, () => {
-  logger.info(`API Server running on http://localhost:${port}`);
+  logger.info(`API Server running on port ${port}`);
 });
 
 export default app;
