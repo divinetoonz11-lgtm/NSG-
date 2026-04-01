@@ -12,34 +12,6 @@ import logger from './utils/logger.js';
 const app = express();
 
 // ========================
-// 🔥 DATABASE CONNECT
-// ========================
-connectDB();
-
-// ========================
-// 🔥 GLOBAL ERROR HANDLING
-// ========================
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('Interrupted');
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received');
-  await new Promise(resolve => setTimeout(resolve, 3000));
-  logger.info('Exiting');
-  process.exit();
-});
-
-// ========================
 // 🔥 MIDDLEWARES
 // ========================
 app.use(helmet());
@@ -63,7 +35,6 @@ app.get('/', (req, res) => {
 // ========================
 // 🚀 ROUTES
 // ========================
-// authMiddleware अब सिर्फ protected routes में use होगा
 app.use('/api', routes());
 
 // ========================
@@ -79,12 +50,24 @@ app.use((req, res) => {
 });
 
 // ========================
-// 🚀 SERVER START
+// 🔥 ASYNC SERVER START
 // ========================
-const port = process.env.PORT || 5000;
+const startServer = async () => {
+  try {
+    await connectDB(); // DB connect first
 
-app.listen(port, () => {
-  logger.info(`API Server running on port ${port}`);
-});
+    const port = process.env.PORT || 5000;
+
+    app.listen(port, () => {
+      logger.info(`API Server running on port ${port}`);
+    });
+
+  } catch (error) {
+    logger.error("Server failed to start:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
 
 export default app;
