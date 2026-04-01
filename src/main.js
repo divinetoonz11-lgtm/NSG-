@@ -12,7 +12,7 @@ import logger from './utils/logger.js';
 const app = express();
 
 // ========================
-// MIDDLEWARES
+// 🔥 MIDDLEWARES
 // ========================
 app.use(helmet());
 app.use(cors({
@@ -24,35 +24,42 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ========================
-// Health Check Route
+// 🚀 HEALTH CHECK ROUTE
 // ========================
-app.get('/', (req, res) => res.send('API is running 🚀'));
+app.get('/', (req, res) => {
+  res.send('API is running 🚀');
+});
 
 // ========================
-// Routes (authMiddleware only on protected routes)
+// 🚀 ROUTES
 // ========================
-app.use('/api', routes());
+// Use authMiddleware only on protected routes inside routes files
+app.use('/api', routes); // ❗ routes(), NOT routes()
 
 // ========================
-// Error Handler
+// ❌ ERROR HANDLER
 // ========================
 app.use(errorMiddleware);
 
 // ========================
-// 404 Handler
+// ❌ 404 HANDLER
 // ========================
-app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
 
 // ========================
-// Async Server Start
+// 🔥 ASYNC SERVER START
 // ========================
 const startServer = async () => {
   try {
-    await connectDB(); // Wait for DB before starting
+    await connectDB(); // wait for DB connection
+
     const port = process.env.PORT || 5000;
     app.listen(port, () => {
       logger.info(`API Server running on port ${port}`);
     });
+
   } catch (error) {
     logger.error("Server failed to start:", error);
     process.exit(1);
