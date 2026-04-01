@@ -12,24 +12,23 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || "*",
 }));
 
-// ✅ Root route (VERY IMPORTANT)
+// Root route
 app.get("/", (req, res) => {
   res.send("🚀 NSG Backend is LIVE");
 });
 
-// ✅ Health route
+// Health check route
 app.get("/health", (req, res) => {
   res.json({ status: "OK" });
 });
 
-// ✅ Google callback test
+// Google callback test
 app.get("/auth/google/callback", (req, res) => {
   res.send("Google callback working ✅");
 });
 
-// ✅ IMPORTANT: Railway PORT fix
-const PORT = process.env.PORT;
-
+// ✅ MOST IMPORTANT: Railway port + 0.0.0.0 bind
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on ${PORT}`);
 });
