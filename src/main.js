@@ -17,6 +17,6 @@ app.get("/health", (req, res) => res.json({ status: "OK" }));
 // Google callback test
 app.get("/auth/google/callback", (req, res) => res.send("Google callback working ✅"));
 
-// Use Railway port & 0.0.0.0
+// Railway port + 0.0.0.0
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => console.log(`Server running on ${PORT}`));
