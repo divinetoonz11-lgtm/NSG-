@@ -2,44 +2,51 @@ import mongoose from "mongoose";
 
 const transactionSchema = new mongoose.Schema({
 
-  // User (referralId based)
+  // 🔥 USER LINK (FIXED)
   userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+
+  // 🔥 REFERRAL ID (extra tracking)
+  referralId: {
     type: String,
     required: true
   },
 
-  // Amount
+  // 🔥 AMOUNT
   amount: {
     type: Number,
     required: true
   },
 
-  // Type
+  // 🔥 TYPE (IMPROVED)
   type: {
     type: String,
-    enum: ["credit", "debit", "withdraw"],
+    enum: ["credit", "debit", "withdraw", "income"],
     required: true
   },
 
-  // Source (income / property / admin)
+  // 🔥 SOURCE
   source: {
     type: String,
     default: "system"
   },
 
-  // Reference (Income ID / Property ID)
+  // 🔥 REFERENCE
   referenceId: {
     type: String
   },
 
-  // Status
+  // 🔥 STATUS (FIXED FOR WITHDRAW FLOW)
   status: {
     type: String,
-    enum: ["pending", "completed", "failed"],
-    default: "completed"
+    enum: ["pending", "approved", "rejected", "completed", "failed"],
+    default: "pending"
   },
 
-  // Note
+  // 🔥 NOTE
   remark: {
     type: String
   }

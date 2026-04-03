@@ -37,7 +37,21 @@ export const creditWallet = async ({
     }
 
     // ========================
-    // 🔥 GLOBAL CAPPING CHECK
+    // ❌ ACTIVE CHECK
+    // ========================
+    if (user.activation_status !== "active") {
+      return { success: false, message: "User inactive" };
+    }
+
+    // ========================
+    // ❌ PACKAGE CHECK
+    // ========================
+    if (!user.packageAmount || user.packageAmount <= 0) {
+      return { success: false, message: "Invalid package" };
+    }
+
+    // ========================
+    // 🔥 GLOBAL CAPPING
     // ========================
     const maxDaily = getDailyCapping(user.packageAmount);
 
@@ -45,51 +59,70 @@ export const creditWallet = async ({
       (user.todayBinary || 0) +
       (user.todayLevel || 0) +
       (user.todayDirect || 0) +
-      (user.todayROI || 0);
+      (user.todayROI || 0) +
+      (user.todayRoyalty || 0);
+
+    let payableAmount = amount;
 
     if (totalToday >= maxDaily) {
       return { success: false, message: "Daily capping reached" };
     }
 
     if (totalToday + amount > maxDaily) {
-      amount = maxDaily - totalToday;
+      payableAmount = maxDaily - totalToday;
     }
 
-    if (amount <= 0) {
-      return { success: false, message: "No payable amount after capping" };
+    if (payableAmount <= 0) {
+      return { success: false, message: "No payable amount" };
+    }
+
+    // ========================
+    // ❌ DUPLICATE CHECK (OPTIONAL)
+    // ========================
+    const existing = await Income.findOne({
+      userId,
+      type,
+      sourceUser,
+      plan,
+      amount: payableAmount
+    });
+
+    if (existing) {
+      return { success: false, message: "Duplicate income blocked" };
     }
 
     // ========================
     // 💰 WALLET UPDATE
     // ========================
-    user.wallet_balance = (user.wallet_balance || 0) + amount;
-    user.totalIncome = (user.totalIncome || 0) + amount;
+    user.wallet_balance = (user.wallet_balance || 0) + payableAmount;
+    user.totalIncome = (user.totalIncome || 0) + payableAmount;
 
     // ========================
     // 🔥 TYPE BASE UPDATE
     // ========================
     if (type === "direct") {
-      user.directIncome = (user.directIncome || 0) + amount;
-      user.todayDirect = (user.todayDirect || 0) + amount;
+      user.directIncome = (user.directIncome || 0) + payableAmount;
+      user.todayDirect = (user.todayDirect || 0) + payableAmount;
     }
 
     if (type === "binary") {
-      user.binaryIncome = (user.binaryIncome || 0) + amount;
-      user.todayBinary = (user.todayBinary || 0) + amount;
+      user.binaryIncome = (user.binaryIncome || 0) + payableAmount;
+      user.todayBinary = (user.todayBinary || 0) + payableAmount;
     }
 
     if (type === "level") {
-      user.levelIncome = (user.levelIncome || 0) + amount;
-      user.todayLevel = (user.todayLevel || 0) + amount;
+      user.levelIncome = (user.levelIncome || 0) + payableAmount;
+      user.todayLevel = (user.todayLevel || 0) + payableAmount;
     }
 
     if (type === "roi") {
-      user.roiIncome = (user.roiIncome || 0) + amount;
-      user.todayROI = (user.todayROI || 0) + amount;
+      user.roiIncome = (user.roiIncome || 0) + payableAmount;
+      user.todayROI = (user.todayROI || 0) + payableAmount;
     }
 
     if (type === "royalty") {
-      user.royaltyIncome = (user.royaltyIncome || 0) + amount;
+      user.royaltyIncome = (user.royaltyIncome || 0) + payableAmount;
+      user.todayRoyalty = (user.todayRoyalty || 0) + payableAmount;
     }
 
     await user.save();
@@ -100,7 +133,7 @@ export const creditWallet = async ({
     const income = await Income.create({
       userId,
       type,
-      amount,
+      amount: payableAmount,
       sourceUser,
       level,
       plan,
@@ -112,7 +145,7 @@ export const creditWallet = async ({
     // ========================
     await Transaction.create({
       userId,
-      amount,
+      amount: payableAmount,
       type: "credit",
       source: type,
       referenceId: income._id.toString(),

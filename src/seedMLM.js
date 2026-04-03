@@ -1,116 +1,114 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import bcrypt from "bcrypt";
-import User from "./src/models/User.js";  // ✅ Correct path
+import path from "path";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+// ✅ FIXED PATH
+import User from "./models/User.js";
+
+// 🔥 FIX ENV PATH
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+// CONNECT DB
 await mongoose.connect(process.env.MONGO_URI);
 console.log("✅ MongoDB Connected");
 
-// PASSWORDS
-const universalPassword = await bcrypt.hash("Tanvi@29102910", 10);
+// PASSWORD
+const password = await bcrypt.hash("Tanvi@2910", 10);
 
 // OPTIONS
-const packageOptions = [10000, 15000, 20000, 25000];
-const propertyOptions = [100000, 200000, 500000, 1000000];
+const packageOptions = [5000, 10000, 15000, 20000, 25000];
+const propertyOptions = [100000, 200000, 300000, 500000];
+
 const randomChoice = arr => arr[Math.floor(Math.random() * arr.length)];
-const randomBool = (percentTrue) => Math.random() < percentTrue;
+const randomBool = (p) => Math.random() < p;
 
 // CLEAR DB
 await User.deleteMany();
+console.log("🧹 Old data cleared");
 
 // ========================
-// COMPANY ROOT
+// ROOT USER
 // ========================
-const company = await User.create({
-  name: "Company",
-  email: "company@test.com",
-  referralId: "CMP" + Date.now(),
-  sponsorId: null,
-  password: universalPassword,
+const root = await User.create({
+  name: "Jai Mata Di",
+  email: "divinetoonz11@gmail.com",
+  password,
+  referralId: "ROOT001",
   role: "admin",
-  activation_status: "active"
-});
-
-// ========================
-// INDER ROOT
-// ========================
-const inder = await User.create({
-  name: "Inder",
-  email: "inder@test.com",
-  referralId: "INDER001",
-  sponsorId: company.referralId,
-  password: universalPassword,
-  packageAmount: randomChoice(packageOptions),
-  propertyAmount: randomChoice(propertyOptions),
   activation_status: "active",
-  role: "user",
-  leftBusiness: 0,
-  rightBusiness: 0,
-  directCount: 0
+  parentId: null,
+  leftChild: null,
+  rightChild: null
 });
 
-console.log("✅ Root Ready");
+console.log("✅ Root Created");
 
 // ========================
-// TREE GENERATION
+// TREE BUILD (1→2→4→...)
 // ========================
-const totalLevels = 8; // 2:4:8:16:32:64:128:256
-let previousLevel = [inder];
+const maxLevels = 8;
+let currentLevel = [root];
 
-for (let level = 1; level <= totalLevels; level++) {
-  let currentLevel = [];
+for (let level = 1; level <= maxLevels; level++) {
+  let nextLevel = [];
 
-  for (let parent of previousLevel) {
-    const numChildren = randomBool(0.8) ? 2 : 1; // 80% 2 direct, 20% 1 direct
+  for (let parent of currentLevel) {
 
-    for (let i = 0; i < numChildren; i++) {
+    for (let i = 0; i < 2; i++) {
+
       const side = i === 0 ? "left" : "right";
 
-      const packageAmount = randomChoice(packageOptions);
-      const propertyAmount = randomChoice(propertyOptions);
-      const isActive = randomBool(0.9); // 90% active, 10% inactive
+      const isActive = randomBool(0.9);     // 90% active
+      const hasProperty = randomBool(0.3);  // 30% property
 
-      const newUser = await User.create({
-        name: `User_L${level}_${side}_${parent.referralId}`,
+      const packageAmount = randomChoice(packageOptions);
+      const propertyAmount = hasProperty ? randomChoice(propertyOptions) : 0;
+
+      const referralId = "USR" + Date.now() + Math.floor(Math.random() * 1000);
+
+      const user = await User.create({
+        name: "Inder Mohan Singh",
         email: `user_${Date.now()}_${Math.random()}@test.com`,
-        password: universalPassword,
-        referralId: "USR" + Date.now() + Math.floor(Math.random() * 1000),
+        password,
+        referralId,
+
         sponsorId: parent.referralId,
+        parentId: parent.referralId,
+        placement: side,
+
+        leftChild: null,
+        rightChild: null,
+
         packageAmount,
         propertyAmount,
-        propertyType: propertyAmount > 0 ? "property" : null,
-        wallet_balance: 0,
-        totalIncome: 0,
-        directIncome: 0,
-        binaryIncome: 0,
-        levelIncome: 0,
-        roiIncome: 0,
-        royaltyIncome: 0,
-        leftBusiness: packageAmount,
-        rightBusiness: packageAmount,
+
         activation_status: isActive ? "active" : "inactive",
-        role: "user",
-        directCount: 0
+        role: "associate",
+
+        leftBusiness: 0,
+        rightBusiness: 0
       });
 
-      // DIRECT COUNT
-      await User.updateOne(
-        { referralId: parent.referralId },
-        { $inc: { directCount: 1 } }
-      );
+      // 🔥 LINK PARENT
+      if (side === "left") {
+        parent.leftChild = referralId;
+      } else {
+        parent.rightChild = referralId;
+      }
 
-      // LEFT/RIGHT attach
-      if (side === "left" && !parent.leftUser) parent.leftUser = newUser.referralId;
-      if (side === "right" && !parent.rightUser) parent.rightUser = newUser.referralId;
       await parent.save();
 
-      currentLevel.push(newUser);
+      nextLevel.push(user);
     }
   }
 
-  previousLevel = currentLevel;
+  currentLevel = nextLevel;
 }
 
-console.log("✅ MLM Tree Ready (2:4:8:16…256)");
+console.log("🔥 MLM TREE READY (1 → 256)");
 process.exit();

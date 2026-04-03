@@ -1,53 +1,95 @@
 import User from "../models/User.js";
 import { creditWallet } from "./wallet.js";
 
+// ========================
+// 🔥 ROYALTY PROCESS (WEAK LEG BASED ON EARNING)
+// ========================
 export const processRoyalty = async (totalCompanyBusiness) => {
+  try {
 
-  if (!totalCompanyBusiness || totalCompanyBusiness <= 0) return;
+    if (!totalCompanyBusiness || totalCompanyBusiness <= 0) return;
 
-  // 🔥 2% Pool
-  const pool = totalCompanyBusiness * 0.02;
+    // 🔥 2% COMPANY POOL
+    const pool = totalCompanyBusiness * 0.02;
 
-  // ✅ ONLY GLOBAL PARTNERS
-  const users = await User.find({ designation: "global" });
+    // ✅ ONLY GLOBAL USERS
+    const users = await User.find({ designation: "global" });
 
-  const qualifiedUsers = [];
+    const qualifiedUsers = [];
 
-  for (let user of users) {
+    for (let user of users) {
 
-    const left = user.monthlyLeftBusiness || 0;
-    const right = user.monthlyRightBusiness || 0;
+      // ========================
+      // 🔥 USER TOTAL BINARY EARNING
+      // ========================
+      const totalBinary = user.binaryIncome || 0;
 
-    const weakLeg = Math.min(left, right);
-    const totalUserBusiness = left + right;
+      // ❌ अगर कुछ कमाया ही नहीं
+      if (totalBinary <= 0) continue;
 
-    // ❌ skip if no business
-    if (totalUserBusiness <= 0) continue;
+      // ========================
+      // 🔥 REQUIRED NEW BUSINESS (10%)
+      // ========================
+      const requiredBusiness = totalBinary * 0.10;
 
-    // 🔥 weak leg ≥ 10%
-    if (weakLeg < totalUserBusiness * 0.10) continue;
+      // ========================
+      // 🔥 MONTHLY NEW BUSINESS
+      // ========================
+      const left = user.monthlyLeftBusiness || 0;
+      const right = user.monthlyRightBusiness || 0;
 
-    qualifiedUsers.push(user);
-  }
+      const weakLeg = Math.min(left, right);
 
-  if (qualifiedUsers.length === 0) return;
+      // ❌ no new business
+      if (weakLeg <= 0) continue;
 
-  const share = pool / qualifiedUsers.length;
+      // ========================
+      // 🔥 MAIN CONDITION
+      // ========================
+      if (weakLeg < requiredBusiness) continue;
 
-  for (let user of qualifiedUsers) {
+      qualifiedUsers.push({
+        user,
+        weakLeg,
+        requiredBusiness
+      });
+    }
 
-    await creditWallet({
-      userId: user.referralId,
-      amount: share,
-      type: "royalty"
-    });
+    // ❌ कोई qualify नहीं हुआ
+    if (qualifiedUsers.length === 0) return;
 
-  }
+    // ========================
+    // 🔥 EQUAL DISTRIBUTION
+    // ========================
+    const share = pool / qualifiedUsers.length;
 
-  // 🔁 Monthly reset
-  for (let user of users) {
-    user.monthlyLeftBusiness = 0;
-    user.monthlyRightBusiness = 0;
-    await user.save();
+    for (let data of qualifiedUsers) {
+
+      const user = data.user;
+
+      await creditWallet({
+        userId: user.referralId,
+        amount: share,
+        type: "royalty",
+        sourceUser: "company",
+        plan: "royalty"
+      });
+
+      // 🔥 update stats
+      user.royaltyIncome = (user.royaltyIncome || 0) + share;
+      await user.save();
+    }
+
+    // ========================
+    // 🔁 MONTHLY RESET
+    // ========================
+    for (let user of users) {
+      user.monthlyLeftBusiness = 0;
+      user.monthlyRightBusiness = 0;
+      await user.save();
+    }
+
+  } catch (err) {
+    console.error("Royalty Error:", err.message);
   }
 };

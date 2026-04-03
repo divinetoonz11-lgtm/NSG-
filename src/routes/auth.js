@@ -2,107 +2,110 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import User from '../models/User.js';
-import { creditWallet } from '../utils/wallet.js';
-import { processBinary } from '../utils/binary.js';
-import { processLevelIncome } from '../utils/level.js';
+
+// ✅ MLM IMPORTS
+import {
+  processDirect,
+  processBinary,
+  processLevelIncome,
+  processROI,
+  checkRewards,
+  processRoyalty,
+  findPlacement
+} from '../utils/index.js';
 
 const router = express.Router();
 
-/** 🔑 Generate 4-digit random referral ID */
+/** 🔑 Generate Referral ID */
 const generateReferralId = async () => {
   let referralId;
   let exists = true;
+
   while (exists) {
-    referralId = Math.floor(1000 + Math.random() * 9000).toString();
+    referralId = "NEXT" + Math.floor(1000 + Math.random() * 9000);
     const user = await User.findOne({ referralId });
     if (!user) exists = false;
   }
+
   return referralId;
-};
-
-/** 🔍 BFS Placement */
-const findPlacement = async (sponsorId) => {
-  const queue = [];
-  const sponsor = await User.findOne({ referralId: sponsorId });
-  if (!sponsor) throw new Error("Invalid sponsor");
-  queue.push(sponsor);
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current.leftChild) return { parent: current, position: 'left' };
-    if (!current.rightChild) return { parent: current, position: 'right' };
-
-    const left = await User.findOne({ referralId: current.leftChild });
-    const right = await User.findOne({ referralId: current.rightChild });
-
-    if (left) queue.push(left);
-    if (right) queue.push(right);
-  }
 };
 
 /** 🔑 SIGNUP */
 router.post('/signup', async (req, res) => {
-  const session = await User.startSession();
-  session.startTransaction();
-
   try {
-    const { name, email, password, sponsorReferralId, packageAmount } = req.body;
-    if (!name || !email || !password || !packageAmount)
+    let { name, email, password, sponsorReferralId } = req.body;
+
+    email = email.toLowerCase().trim();
+
+    if (!name || !email || !password) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
 
     const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ error: 'Email exists' });
+    if (existing) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
     const referralId = await generateReferralId();
 
-    let parent = null;
-    let position = null;
+    let role = "customer";
+    let parentId = null;
+    let placement = null;
+
+    // 🔥 SPONSOR CHECK + PLACEMENT
     if (sponsorReferralId) {
-      const placement = await findPlacement(sponsorReferralId);
-      parent = placement.parent;
-      position = placement.position;
+      const sponsor = await User.findOne({ referralId: sponsorReferralId });
+
+      if (!sponsor) {
+        return res.status(400).json({ error: 'Invalid sponsor ID' });
+      }
+
+      role = "associate";
+
+      placement = await findPlacement(sponsorReferralId, "left");
+
+      if (placement) {
+        parentId = placement.parent.referralId;
+      }
     }
 
-    const newUser = await User.create([{
+    // ✅ CREATE USER
+    const newUser = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password,
       referralId,
+      role,
       sponsorId: sponsorReferralId || null,
-      parentId: parent ? parent.referralId : null,
-      position,
-      packageAmount
-    }], { session });
+      parentId: parentId,
+      packageAmount: 0,
+      propertyAmount: 0,
+      activation_status: "inactive"
+    });
 
-    if (parent) {
-      if (position === 'left') parent.leftChild = referralId;
-      else parent.rightChild = referralId;
-      await parent.save({ session });
+    // 🔥 🔥 MAIN FIX: LINK PARENT (VERY IMPORTANT)
+    if (placement && placement.parent) {
+      const parent = await User.findOne({ referralId: parentId });
+
+      if (parent) {
+        if (placement.position === "left") {
+          parent.leftChild = referralId;
+        } else {
+          parent.rightChild = referralId;
+        }
+
+        await parent.save();
+      }
     }
 
-    if (sponsorReferralId) {
-      const directIncome = packageAmount * 0.40;
-      await creditWallet({
-        userId: sponsorReferralId,
-        amount: directIncome,
-        type: "direct",
-        sourceUser: referralId,
-        plan: "joining"
-      });
-    }
-
-    await processBinary(referralId, packageAmount, "joining");
-    await processLevelIncome(referralId, packageAmount);
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.json({ success: true, data: newUser[0] });
+    res.json({
+      success: true,
+      message: "Signup successful (Inactive user)",
+      data: newUser
+    });
 
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -110,23 +113,83 @@ router.post('/signup', async (req, res) => {
 /** 🔑 LOGIN */
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+
+    email = email.toLowerCase().trim();
+
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user.referralId, role: user.role }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRE
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user
     });
 
-    res.json({ success: true, token, user });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ✅ MUST BE THE LAST LINE
+/** 🔥 ACTIVATE USER */
+router.post("/activate", async (req, res) => {
+  try {
+    const { email, packageAmount } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (user.activation_status === "active") {
+      return res.json({ message: "Already active" });
+    }
+
+    // ✅ ACTIVATE
+    user.activation_status = "active";
+    user.packageAmount = packageAmount;
+
+    // 🔥 ROLE FIX
+    if (user.sponsorId) {
+      user.role = "associate";
+    }
+
+    await user.save();
+
+    // 🔥 MLM RUN
+    if (user.sponsorId) {
+      await processDirect(user.sponsorId, packageAmount, user.referralId);
+      await processBinary(user.referralId, packageAmount, "joining");
+      await processLevelIncome(user.referralId, packageAmount);
+      await processROI();
+      await checkRewards(user.referralId);
+      await processRoyalty(user.referralId);
+    }
+
+    res.json({
+      success: true,
+      message: "User activated successfully"
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;

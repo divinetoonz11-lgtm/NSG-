@@ -1,6 +1,10 @@
 import User from "../models/User.js";
 import { creditWallet } from "./wallet.js";
+import { getPV } from "./pv.js";
 
+// ========================
+// 🔥 DAILY CAPPING
+// ========================
 const getDailyCapping = (packageAmount) => {
   if (packageAmount === 5000) return 1000;
   if (packageAmount === 10000) return 2000;
@@ -9,6 +13,9 @@ const getDailyCapping = (packageAmount) => {
   return packageAmount * 0.4;
 };
 
+// ========================
+// 🔥 BINARY PROCESS
+// ========================
 export const processBinary = async (userId, amount, plan = "joining") => {
   try {
 
@@ -19,14 +26,29 @@ export const processBinary = async (userId, amount, plan = "joining") => {
       const parent = await User.findOne({ referralId: currentUser.parentId });
       if (!parent) break;
 
-      // ✅ BUSINESS ADD
-      if (parent.leftChild === currentUser.referralId) {
-        parent.leftBusiness = (parent.leftBusiness || 0) + amount;
-      } else if (parent.rightChild === currentUser.referralId) {
-        parent.rightBusiness = (parent.rightBusiness || 0) + amount;
+      // ========================
+      // 🔥 PV CALCULATION
+      // ========================
+      let pv = getPV(amount, plan);
+
+      if (pv <= 0) {
+        currentUser = parent;
+        continue;
       }
 
-      // ✅ 2 ACTIVE DIRECT REQUIRED
+      // ========================
+      // ✅ BUSINESS ADD (CARRY FORWARD)
+      // ========================
+      if (parent.leftChild === currentUser.referralId) {
+        parent.leftBusiness = (parent.leftBusiness || 0) + pv;
+      } 
+      else if (parent.rightChild === currentUser.referralId) {
+        parent.rightBusiness = (parent.rightBusiness || 0) + pv;
+      }
+
+      // ========================
+      // 🔥 2 DIRECT COMPULSORY
+      // ========================
       const activeDirects = await User.countDocuments({
         sponsorId: parent.referralId,
         activation_status: "active"
@@ -38,41 +60,69 @@ export const processBinary = async (userId, amount, plan = "joining") => {
         continue;
       }
 
+      // ========================
+      // 🔥 LEFT + RIGHT ACTIVE CHECK
+      // ========================
+      const leftDirect = await User.findOne({
+        sponsorId: parent.referralId,
+        placement: "left",
+        activation_status: "active"
+      });
+
+      const rightDirect = await User.findOne({
+        sponsorId: parent.referralId,
+        placement: "right",
+        activation_status: "active"
+      });
+
+      if (!leftDirect || !rightDirect) {
+        await parent.save();
+        currentUser = parent;
+        continue;
+      }
+
       let left = parent.leftBusiness || 0;
       let right = parent.rightBusiness || 0;
 
       let pairCount = 0;
 
-      // 🔥 2:1 MATCH
-      if (left >= amount * 2 && right >= amount) {
-        pairCount = Math.floor(Math.min(left / (amount * 2), right / amount));
+      // ========================
+      // 🔥 MATCH LOGIC (CARRY FORWARD SAFE)
+      // ========================
+      if (left > 0 && right > 0) {
 
-        parent.leftBusiness -= pairCount * amount * 2;
-        parent.rightBusiness -= pairCount * amount;
-      }
+        // 🔥 2:1 MATCH
+        if (left >= right * 2) {
 
-      // 🔥 1:2 MATCH
-      else if (right >= amount * 2 && left >= amount) {
-        pairCount = Math.floor(Math.min(right / (amount * 2), left / amount));
+          pairCount = Math.floor(right);
 
-        parent.rightBusiness -= pairCount * amount * 2;
-        parent.leftBusiness -= pairCount * amount;
-      }
-
-      if (pairCount > 0) {
-
-        // ✅ PLAN BASED %
-        let percent = 0;
-
-        if (plan === "property") {
-          percent = 0.06; // 6%
-        } else {
-          percent = 0.20; // 20%
+          parent.leftBusiness -= pairCount * 2;
+          parent.rightBusiness -= pairCount;
         }
 
-        let income = pairCount * amount * percent;
+        // 🔥 1:2 MATCH
+        else if (right >= left * 2) {
 
-        // 🔥 GLOBAL CAPPING
+          pairCount = Math.floor(left);
+
+          parent.rightBusiness -= pairCount * 2;
+          parent.leftBusiness -= pairCount;
+        }
+      }
+
+      // ========================
+      // 💰 INCOME CALCULATION
+      // ========================
+      if (pairCount > 0) {
+
+        let percent = plan === "property" ? 0.06 : 0.20;
+
+        // 🔥 PV → ₹ (1 PV = ₹1000)
+        let income = pairCount * percent * 1000;
+
+        // ========================
+        // 🔥 DAILY CAPPING
+        // ========================
         const maxDaily = getDailyCapping(parent.packageAmount);
 
         const totalToday =
@@ -83,13 +133,18 @@ export const processBinary = async (userId, amount, plan = "joining") => {
 
         if (totalToday >= maxDaily) {
           income = 0;
-        } else if (totalToday + income > maxDaily) {
+        } 
+        else if (totalToday + income > maxDaily) {
           income = maxDaily - totalToday;
         }
 
+        // ========================
+        // 💰 CREDIT WALLET
+        // ========================
         if (income > 0) {
 
           parent.todayBinary = (parent.todayBinary || 0) + income;
+          parent.binaryIncome = (parent.binaryIncome || 0) + income;
 
           await parent.save();
 
@@ -109,6 +164,9 @@ export const processBinary = async (userId, amount, plan = "joining") => {
         await parent.save();
       }
 
+      // ========================
+      // 🔁 MOVE UP
+      // ========================
       currentUser = parent;
     }
 
